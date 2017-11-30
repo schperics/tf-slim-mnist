@@ -19,35 +19,37 @@ FLAGS = flags.FLAGS
 
 
 def main(args):
-  # use RMSProp to optimize
-  optimizer = tf.train.RMSPropOptimizer(0.001, 0.9)
+  with tf.device("/cpu:0"):
+    # use RMSProp to optimize
+    optimizer = tf.train.RMSPropOptimizer(0.001, 0.9)
+    
+    # load the dataset
+    dataset = mnist.get_split('train', FLAGS.data_dir)
+    
+    # load batch of dataset
+    images, labels = load_batch(dataset,
+                                FLAGS.batch_size,
+                                is_training=True)
+    
+    queue = prefetch_queue([images, labels], capacity=10)
   
-  # load the dataset
-  dataset = mnist.get_split('train', FLAGS.data_dir)
-  
-  # load batch of dataset
-  images, labels = load_batch(dataset,
-                              FLAGS.batch_size,
-                              is_training=True)
-  
-  queue = prefetch_queue([images, labels], capacity=10)
-  
-  # run the image through the model
-  images, labels = queue.dequeue()
-  predictions = lenet(images)
-  
-  # get the cross-entropy loss
-  one_hot_labels = slim.one_hot_encoding(labels,
-                                         dataset.num_classes)
-  slim.losses.softmax_cross_entropy(predictions,
-                                    one_hot_labels)
-  total_loss = slim.losses.get_total_loss()
-  
-  # create train op
-  train_op = slim.learning.create_train_op(
-    total_loss,
-    optimizer,
-    summarize_gradients=True)
+  with tf.device("/gpu:0"):
+    # run the image through the model
+    images, labels = queue.dequeue()
+    predictions = lenet(images)
+    
+    # get the cross-entropy loss
+    one_hot_labels = slim.one_hot_encoding(labels,
+                                           dataset.num_classes)
+    slim.losses.softmax_cross_entropy(predictions,
+                                      one_hot_labels)
+    total_loss = slim.losses.get_total_loss()
+    
+    # create train op
+    train_op = slim.learning.create_train_op(
+      total_loss,
+      optimizer,
+      summarize_gradients=True)
   
   sess_conf = tf.ConfigProto(allow_soft_placement=True,
                              log_device_placement=False)
