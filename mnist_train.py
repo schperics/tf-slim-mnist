@@ -18,6 +18,25 @@ flags.DEFINE_string('log_dir', './log/train',
 FLAGS = flags.FLAGS
 
 
+def train(queue, dataset, optimizer):
+  # run the image through the model
+  images, labels = queue.dequeue()
+  predictions = lenet(images)
+  
+  # get the cross-entropy loss
+  one_hot_labels = slim.one_hot_encoding(labels,
+                                         dataset.num_classes)
+  slim.losses.softmax_cross_entropy(predictions,
+                                    one_hot_labels)
+  total_loss = slim.losses.get_total_loss()
+  
+  # create train op
+  train_op = slim.learning.create_train_op(total_loss,
+                                           optimizer,
+                                           summarize_gradients=True)
+  return train_op
+
+
 def main(args):
   with tf.device("/cpu:0"):
     # use RMSProp to optimize
@@ -33,23 +52,11 @@ def main(args):
     
     queue = prefetch_queue([images, labels], capacity=10)
   
-  with tf.device("/gpu:0"):
-    # run the image through the model
-    images, labels = queue.dequeue()
-    predictions = lenet(images)
-    
-    # get the cross-entropy loss
-    one_hot_labels = slim.one_hot_encoding(labels,
-                                           dataset.num_classes)
-    slim.losses.softmax_cross_entropy(predictions,
-                                      one_hot_labels)
-    total_loss = slim.losses.get_total_loss()
-    
-    # create train op
-    train_op = slim.learning.create_train_op(
-      total_loss,
-      optimizer,
-      summarize_gradients=True)
+  train_ops = []
+  with tf.variable_scope("main", reuse=tf.AUTO_REUSE):
+    for i in range(2):
+      with tf.device("/gpu:%d" % i):
+        train_ops.append(train(queue, dataset, optimizer))
   
   sess_conf = tf.ConfigProto(allow_soft_placement=True,
                              log_device_placement=False)
@@ -59,11 +66,11 @@ def main(args):
   
   # warm up
   for _ in range(100):
-    sess.run(train_op)
+    sess.run(train_ops)
   
   start = time.time()
   for i in range(10000):
-    val = sess.run(train_op)
+    val = sess.run(train_ops)
     if i % 100 == 0:
       print("{} : {}".format(i, val))
   elapsed = time.time() - start
