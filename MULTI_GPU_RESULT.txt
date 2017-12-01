@@ -1,0 +1,82 @@
+tensorflow는 weight(=variable)과 op의 device를 모두 지정가능하다.
+
+multi-gpu 학습에서 널리 알려진 방법은 gpu1,2에서 각각 서로 다른 batch를 돌리고 gredient를 합산해서 둘 모두의 weight를 update해주는 방식이다.
+
+slim의 model_deploy library ( tensorflow/models에 포함되어있음. ) 에서 해주는 일이 그것인데
+제약은 기본이 되는 weight(=variable)은 한개의 device에 있고 이를 복사해서 사용하는 방식을 취하고 있다.
+
+자세한 내용은 일단 생략하고 테스트 결과만 적는다.
+
+batch_size = 32, image_size = 300 X 300, iteration(=global_step) 100
+
+!!!
+var_dev = variables_device. 연산을 하는 device라는 뜻이 아니다.
+loss = 각 batch loss의 합이다. 따라서 4 gpu의 loss는 1 gpu loss의 1/4로 생각하는게 올바르다.
+단 train loss이므로 정량적인 수치로 해석하지 말길.
+
+--- g3.16x ---- ( M60 * 4 )
+
+   num_gpu=1, var_dev = cpu
+      loss : 1.464469
+      time : 28.456617832183838s
+
+   num_gpu=2, var_dev = cpu
+      loss : 1.3591839
+      time : 46.00968337059021s
+
+   num_gpu=4, var_dev = cpu
+      loss : 0.91752231
+      time : 53.02823352813721s
+
+
+
+   num_gpu=1, var_dev = gpu
+      loss : 1.3468194
+      time : 25.135154485702515s
+
+   num_gpu=2, var_dev = gpu
+      loss : 0.94578838
+      time : 38.56816816329956s
+
+   num_gpu=4, var_dev = gpu
+      loss : 0.95410824
+      time : 59.45587635040283s
+
+
+--- p3.8x --- ( V100 * 4 )
+
+   num_gpu=1, var_dev = cpu
+      loss : 0.043593585
+      time : 20.52069854736328s
+
+   num_gpu=2, var_dev = cpu
+      loss : 0.2928994
+      time : 33.01514744758606s
+
+   num_gpu=4, var_dev = cpu
+      loss : 0.14948651
+      time : 36.02596974372864s
+
+ 
+   num_gpu=1, var_dev = gpu
+      loss : 0.29256356
+      time : 5.246880531311035s
+
+   num_gpu=2, var_dev = gpu
+      loss : 0.19244623
+      time : 20.640666723251343s
+
+   num_gpu=4, var_dev = gpu
+      loss : 0.16540147
+      time : 27.13164758682251s
+
+
+해석
+M60에서는 계산량이 상대적으로 커서 weight 교환으로 인한 지연 효과가 상대적으로 낮다.
+그래서 var_dev가 cpu이던 gpu이던 시간이 크게 차이나지 않고 있다.
+multi-gpu쪽에서의 지연은 gred를 모으는 시간지연이 크게 나타나는것으로 보인다. 다만 모으는 시간은 한개를 기다리던 (2장일때,) 세개를 기다리던(4장일때) 기다리는 장비에 비례하는 시간은 아닐것이므로 이 경우 단순하게 gpu를 많이 쓰는것이 시간 이득을 많이 볼 것으로 보인다.
+
+V100에서는 계산량이 상대적으로 적어서 single gpu그리고 var_dev가 gpu일때가 성능이 압도적으로 좋다.
+따라서 계산량이 작은 모델은 차라리 single gpu를 사용하는것이 다른 overhead를 없내는 길이 되는 것으로 보인다.
+
+
