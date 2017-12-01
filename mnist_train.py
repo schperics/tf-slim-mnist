@@ -2,15 +2,16 @@ import tensorflow as tf
 from tensorflow.contrib.slim.python.slim.data.prefetch_queue import prefetch_queue
 
 from datasets import mnist
-from model import lenet, load_batch
+from net import lenet, load_batch
 import time
+import model_deploy
 
 slim = tf.contrib.slim
 
 flags = tf.app.flags
 flags.DEFINE_string('data_dir', '/tmp/mnist',
                     'Directory with the mnist data.')
-flags.DEFINE_integer('batch_size', 5, 'Batch size.')
+flags.DEFINE_integer('batch_size', 32, 'Batch size.')
 flags.DEFINE_integer('num_batches', None,
                      'Num of batches to train (epochs).')
 flags.DEFINE_string('log_dir', './log/train',
@@ -18,63 +19,50 @@ flags.DEFINE_string('log_dir', './log/train',
 FLAGS = flags.FLAGS
 
 
-def train(queue, dataset, optimizer):
-  # run the image through the model
-  images, labels = queue.dequeue()
-  predictions = lenet(images)
-  
-  # get the cross-entropy loss
-  one_hot_labels = slim.one_hot_encoding(labels,
-                                         dataset.num_classes)
-  slim.losses.softmax_cross_entropy(predictions,
-                                    one_hot_labels)
-  total_loss = slim.losses.get_total_loss()
-  
-  # create train op
-  train_op = slim.learning.create_train_op(total_loss,
-                                           optimizer,
-                                           summarize_gradients=True)
-  return train_op
-
-
 def main(args):
-  with tf.device("/cpu:0"):
-    # use RMSProp to optimize
-    optimizer = tf.train.RMSPropOptimizer(0.001, 0.9)
-    
+  config = model_deploy.DeploymentConfig(num_clones=2)
+  
+  with tf.device(config.variables_device()):
+    global_step = tf.train.get_or_create_global_step()
+  
+  with tf.device(config.inputs_device()):
     # load the dataset
     dataset = mnist.get_split('train', FLAGS.data_dir)
     
     # load batch of dataset
     images, labels = load_batch(dataset,
                                 FLAGS.batch_size,
+                                width=300,
+                                height=300,
                                 is_training=True)
     
     queue = prefetch_queue([images, labels], capacity=10)
   
-  train_ops = []
-  with tf.variable_scope("main", reuse=tf.AUTO_REUSE):
-    for i in range(2):
-      with tf.device("/gpu:%d" % i):
-        train_ops.append(train(queue, dataset, optimizer))
+  with tf.device(config.optimizer_device()):
+    optimizer = tf.train.RMSPropOptimizer(0.001, 0.9)
+  
+  def model_fn(queue):
+    images, labels = queue.dequeue()
+    predictions = lenet(images)
+    one_hot_labels = slim.one_hot_encoding(labels,
+                                           dataset.num_classes)
+    slim.losses.softmax_cross_entropy(predictions,
+                                      one_hot_labels)
+  
+  model_dp = model_deploy.deploy(config, model_fn, [queue], optimizer=optimizer)
   
   sess_conf = tf.ConfigProto(allow_soft_placement=True,
                              log_device_placement=False)
   sess = tf.Session(config=sess_conf)
   tf.train.start_queue_runners(sess=sess)
   sess.run(tf.global_variables_initializer())
+  s = time.time()
+  for i in range(100):
+    var = sess.run([model_dp.train_op, global_step])
+    if i % 10 == 0:
+      print("{}, {}".format(i, var))
   
-  # warm up
-  for _ in range(100):
-    sess.run(train_ops)
-  
-  start = time.time()
-  for i in range(10000):
-    val = sess.run(train_ops)
-    if i % 100 == 0:
-      print("{} : {}".format(i, val))
-  elapsed = time.time() - start
-  print("last loss = {}, {} sec".format(val, elapsed))
+  print("last : {}, {}s elapsed".format(var, time.time() - s))
 
 
 if __name__ == '__main__':

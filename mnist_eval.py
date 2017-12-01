@@ -1,7 +1,7 @@
 import tensorflow as tf
 
 from datasets import mnist
-from model import lenet, load_batch
+from net import lenet, load_batch, simple_net
 
 slim = tf.contrib.slim
 metrics = tf.contrib.metrics

@@ -21,15 +21,13 @@ def load_batch(dataset, batch_size=32, height=28, width=28, is_training=False):
   
   image, label = data_provider.get(['image', 'label'])
   
-  image = lenet_preprocessing.preprocess_image(
-    image,
-    height,
-    width,
-    is_training)
+  image = lenet_preprocessing.preprocess_image(image,
+                                               height,
+                                               width,
+                                               is_training)
   
-  images, labels = tf.train.batch(
-    [image, label],
-    batch_size=batch_size,
-    allow_smaller_final_batch=True)
+  images, labels = tf.train.batch([image, label],
+                                  batch_size=batch_size,
+                                  allow_smaller_final_batch=True)
   
   return tf.reshape(images, [batch_size, height, width, 1]), tf.reshape(labels, [batch_size])
